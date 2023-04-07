@@ -1,0 +1,4 @@
+pandas~=2.0.0rc1
+numpy~=1.24.2
+matplotlib~=3.7.1
+mplcursors~=0.5.2
