@@ -81,6 +81,8 @@ ax.grid(visible=True, which='major', axis='both', c='black', linestyle='--', lin
 # Activity tracking
 steps = [] #### Add daily steps for approximate NEAT
 avg_steps = mean(steps)
+tenk = len([i for i in steps if i > 10000])
+tenkperc = (tenk/len(steps))*100
 step_error = mean([step * 1.15 for step in steps]) - avg_steps #### Assumes 15% error on step count
 
 for step in range(len(dates) - len(steps)):
@@ -93,10 +95,13 @@ ax1 = df.plot.bar(use_index=True, y='steps', color='b', alpha=0.5, yerr='step_er
                   error_kw={'ecolor': 'black', 'elinewidth': 0.3, 'capsize': 1},
                   xlabel='Date', ylabel=r'Daily Steps (± 15%)', legend=True)
 ax1.axhline(y=avg_steps, linewidth=1, color='r', linestyle='--', label='average daily steps')
-ax1.legend(['Average daily steps', 'Daily steps'])
+ax1.axhline(y=10000, linewidth=1, color='black', linestyle='--', alpha=0.2, label='10000')
+ax1.legend(['Average daily steps', '10000 steps', 'Daily steps'])
 ax1.set_title(f'Daily Steps From {startdt} to {enddt}\nMeasured from Phone between 00:00 to 23:59')
-ax1.text(x=0.82, y=0.84, s=f'Average daily steps:\n'
-                          f'{int(avg_steps)} ± {int(step_error)} steps/day',
+ax1.text(x=0.784, y=0.75, s=f'Average daily steps:\n'
+                           f'{int(avg_steps)} ± {int(step_error)} steps/day'
+                           f'\n\n{tenk} days over 10k steps'
+                           f'\n{int(tenkperc)}% of days over 10k steps',
          horizontalalignment='left', verticalalignment='center', transform=ax1.transAxes,
          bbox=dict(facecolor='none', edgecolor='black', pad=10.0, alpha=0.15))
 ax1.set_ylim(0, int(max(steps) * 1.25))
