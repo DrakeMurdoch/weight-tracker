@@ -25,6 +25,19 @@ df = df.set_index('date')
 df['idx'] = df.index
 startdt, enddt = df.index[0].date(), df.index[-1].date()
 
+# Find weight above and below ideal
+def ab(row):
+    if not row.real_weight:
+        return np.nan
+    elif row.real_weight <= row.lin_weight:
+        return 1
+    elif row.real_weight > row.lin_weight:
+        return 0
+
+df['ab'] = df.apply(ab, axis=1)
+below = df.ab[df['ab'] == 1].count()
+above = df.ab[df['ab'] == 0].count()
+
 # Add linear regression of weight
 x = df['ordinal'].head(lw).to_numpy()
 y = df['real_weight'].head(lw).to_numpy()
@@ -48,6 +61,11 @@ ax.set_xticks(df.ordinal, minor=True)
 ax.set_xticklabels(new_labels, rotation=45)
 
 ax.set_title(f'Weight Loss From {startdt} to {enddt}\nMeasured After Urination in the Morning')
+ax.text(x=0.71, y=0.74, s=f'Days at or below ideal weight curve: {below}'
+                        f'\nDays above ideal weight curve: {above}',
+        horizontalalignment='left', verticalalignment='center', transform=ax.transAxes,
+        bbox=dict(facecolor='none', edgecolor='black', pad=10.0, alpha=0.15)
+        )
 if m < 0 and m*7 < lpw:
     ax.text(x=0.02, y=0.3, s=f'Weekly weight loss needed to hit goal:\n{lpw} lbs/week'
                               f'\n\nYou are currently LOSING weight at a pace of:\n{abs(round(m*7,2))} lbs/week'
@@ -98,10 +116,10 @@ ax1.axhline(y=avg_steps, linewidth=1, color='r', linestyle='--', label='average 
 ax1.axhline(y=10000, linewidth=1, color='black', linestyle='--', alpha=0.2, label='10000')
 ax1.legend(['Average daily steps', '10000 steps', 'Daily steps'])
 ax1.set_title(f'Daily Steps From {startdt} to {enddt}\nMeasured from Phone between 00:00 to 23:59')
-ax1.text(x=0.784, y=0.75, s=f'Average daily steps:\n'
-                           f'{int(avg_steps)} ± {int(step_error)} steps/day'
-                           f'\n\n{tenk} days over 10k steps'
-                           f'\n{int(tenkperc)}% of days over 10k steps',
+ax1.text(x=0.777, y=0.72, s=f'Average daily steps:\n'
+                            f'{int(avg_steps)} ± {int(step_error)} steps/day'
+                            f'\n\n{tenk} ({int(tenkperc)}%) days over 10k steps'
+                            f'\n\nBest/Worst day:\n{max(steps)}/{min(steps)} steps',
          horizontalalignment='left', verticalalignment='center', transform=ax1.transAxes,
          bbox=dict(facecolor='none', edgecolor='black', pad=10.0, alpha=0.15))
 ax1.set_ylim(0, int(max(steps) * 1.25))
