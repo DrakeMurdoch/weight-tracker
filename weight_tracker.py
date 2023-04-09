@@ -64,7 +64,7 @@ ax.set_title(f'Weight Loss From {startdt} to {enddt}\nMeasured After Urination i
 ax.text(x=0.71, y=0.74, s=f'Days at or below ideal weight curve: {below}'
                         f'\nDays above ideal weight curve: {above}',
         horizontalalignment='left', verticalalignment='center', transform=ax.transAxes,
-        bbox=dict(facecolor='none', edgecolor='black', pad=10.0, alpha=0.15)
+        bbox=dict(facecolor=(1, 1, 1, 0.85), edgecolor=(0, 0, 0, 0.12), pad=10.0)
         )
 if m < 0 and m*7 < lpw:
     ax.text(x=0.02, y=0.3, s=f'Weekly weight loss needed to hit goal:\n{lpw} lbs/week'
