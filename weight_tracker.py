@@ -1,56 +1,112 @@
 import pandas as pd
 import numpy as np
-from datetime import date
+from datetime import date, timedelta
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-import matplotlib.ticker as mticker
 from mplcursors import cursor
-from statistics import  mean
+from diff_refactored import avg_cal_nout, cals_no_outliers
 
+def add_nans(input_list: list, target_size: int) -> list:
+    for cal in range(target_size + 1 - len(input_list)):
+        input_list.append(np.nan)
+    return input_list
 
 # Weight tracking
-real_weight = [] #### Add your weight to this list
+real_weight = [
+
+] #### Add your weight to this list
 lw = len(real_weight)
-dates = pd.date_range(start='01/01/2000', end='31/12/2000') #### Add date range
-for weight in range(len(dates) - len(real_weight)):
-    real_weight.append(np.nan)
-goalw, startw = 100, 200 #### Add goal weight and starting weight
-lin_weight = np.linspace(startw, goalw, len(dates))
-lpw = round(7 * (lin_weight[0] - lin_weight[1]), 2)
-df = pd.DataFrame(data={'date': dates, 'lin_weight': lin_weight, 'real_weight': real_weight})
+goalw, startw = 200, real_weight[0] #### Add goal weight here
+noof_days = list(range(lw))
+
+# Linear regression of weight over time to predict weight loss trend
+x0 = noof_days
+y0 = real_weight
+m0, b0 = np.polyfit(x0, y0, 1)
+
+total_days = int((goalw - b0)/m0)
+start_date = date(2026, 01, 01) #### Add start date
+end_date = start_date + timedelta(days=total_days)
+lin_weight0 = [m0*i+b0 for i in range(total_days+1)]
+
+# Remove outliers and recalculate linear regression
+real_vs_lin = [float(i-j) for i,j in zip(real_weight, lin_weight0)]
+max_diff = 0.8 #### This value was accurate for me, but can be adjusted to sync up trendline with real values
+indices = []
+diff_real_weight = real_weight.copy()
+diff_noof_days = noof_days.copy()
+for r, d in enumerate(real_vs_lin):
+    if d >= max_diff:
+        indices.append(r)
+for index in sorted(indices, reverse=True):
+    del diff_real_weight[index]
+    del diff_noof_days[index]
+
+x = diff_noof_days
+y = diff_real_weight
+m, b = np.polyfit(x, y, 1)
+lin_weight = [m*i+b for i in range(total_days+1)]
+
+# Calculate daily average calories burnt
+daily_excess_cals = -m*3600
+cals_burnt = int(daily_excess_cals + avg_cal_nout)
+cals_std = int(np.std(cals_no_outliers))
+
+# List with only dropped values
+dropped_weights = []
+for num in range(lw):
+    if num in indices:
+        dropped_weights.append(real_weight[num])
+    else:
+        dropped_weights.append(np.nan)
+
+# Linear regression of last just week's weights
+x1 = noof_days[-7:]
+y1 = real_weight[-7:]
+m1, b1 = np.polyfit(x1, y1, 1)
+lin_weight1 = [m1*i+b1 for i in range(total_days+1)]
+
+# Turn it all into a pandas DataFrame
+dates = pd.date_range(start=start_date, end=end_date)
+dropped_weights_nan = add_nans(dropped_weights.copy(), total_days)
+real_weight_nan = add_nans(real_weight.copy(), total_days)
+df = pd.DataFrame(data={
+        'date': dates,
+        'lin_weight': lin_weight,
+        'real_weight': real_weight_nan,
+        'last_week': lin_weight1,
+        'dropped': dropped_weights_nan
+})
 df['goal'] = goalw
 df['day'] = df.date
 df['ordinal'] = pd.to_datetime(df['date']).apply(lambda date: date.toordinal())
 df = df.set_index('date')
 df['idx'] = df.index
-startdt, enddt = df.index[0].date(), df.index[-1].date()
+projected_weight = round(df.lin_weight.iloc[len(noof_days)],1)
+goal_date = df.day.iloc[-1]
 
-# Find weight above and below ideal
-def ab(row):
-    if not row.real_weight:
-        return np.nan
-    elif row.real_weight <= row.lin_weight:
-        return 1
-    elif row.real_weight > row.lin_weight:
-        return 0
+today = df.day.iloc[lw].date()
+days_left = len(df.goal) - lw
 
-df['ab'] = df.apply(ab, axis=1)
-below = df.ab[df['ab'] == 1].count()
-above = df.ab[df['ab'] == 0].count()
+# Find milestone date
+milestone = 210 #### Add whatever milestone weight you want
+true_milestone = min(lin_weight, key=lambda x:abs(x-milestone))
+milestone_index = lin_weight.index(true_milestone)
+milestone_ord = df.ordinal.iloc[milestone_index]
+milestone_date = df.day.iloc[milestone_index]
 
-# Add linear regression of weight
-x = df['ordinal'].head(lw).to_numpy()
-y = df['real_weight'].head(lw).to_numpy()
-m, b = np.polyfit(x, y, 1)
-ct = m*(df['ordinal'].iloc[-1]) + b
+# Plot everything relevant
+fig, ax = plt.subplots(nrows=1, ncols=1)
 
-# Weight plot
-fig, axes = plt.subplots(nrows=1, ncols=1)
-
-ax = df.plot(x='ordinal', y=['lin_weight', 'goal', 'real_weight'], color=['b', 'r', 'black'],
-             xlabel='Date', ylabel='Weight (lbs)', kind='line', style=['--', '-', 'o'])
-ax.axline(xy1=(0, b), slope=m, c='black', linestyle='-', label=f'$y = {m:.1f}x {b:+.1f}$')
-ax.legend(['Ideal weight-loss tajectory', 'Goal weight', 'Measured weight', 'Current real weight-loss trajectory'])
+ax.plot(df['ordinal'], df['lin_weight'], color='b', linestyle='-')
+ax.plot(df['ordinal'], df['goal'], color='r', linestyle='-')
+ax.scatter(df['ordinal'], df['real_weight'], color='black', s=10, marker='X', alpha=0.9)
+ax.scatter(df['ordinal'], df['dropped'], color='r', s=10, marker='X', alpha=1)
+ax.plot(df['ordinal'], df['last_week'], color='black', linestyle='--')
+ax.vlines(x=milestone_ord, ymin=goalw-3, ymax=startw, color='purple', linestyle='dotted')
+ax.legend([f'Overall Weight-loss Trajectory ({round(m*7,2)} lbs/week)', f'Goal Weight ({goalw} lbs)',
+        'Measured Weight', 'Measurements Dropped from Regression',
+        f'7-Day Weight-loss Trajectory ({round(m1*7,2)} lbs/week)',
+        f'Milestone Weight Date ({milestone} lbs on {milestone_date.date()})'], fontsize=7)
 ax.set_ylim(goalw - 3, startw + 3)
 ax.set_xlim(df['ordinal'].min() - 1, df['ordinal'].max() + 1)
 
@@ -60,87 +116,21 @@ new_labels = [date.fromordinal(int(item)) for item in ax.get_xticks()]
 ax.set_xticks(df.ordinal, minor=True)
 ax.set_xticklabels(new_labels, rotation=45)
 
-ax.set_title(f'Weight Loss From {startdt} to {enddt}\nMeasured After Urination in the Morning')
-ax.text(x=0.71, y=0.74, s=f'Days at or below ideal weight curve: {below}'
-                        f'\nDays above ideal weight curve: {above}',
-        horizontalalignment='left', verticalalignment='center', transform=ax.transAxes,
-        bbox=dict(facecolor=(1, 1, 1, 0.85), edgecolor=(0, 0, 0, 0.12), pad=10.0)
-        )
-if m < 0 and m*7 < lpw:
-    ax.text(x=0.02, y=0.3, s=f'Weekly weight loss needed to hit goal:\n{lpw} lbs/week'
-                              f'\n\nYou are currently LOSING weight at a pace of:\n{abs(round(m*7,2))} lbs/week'
-                              f'\n\nWeight at goal date according to current trajectory:\n{round(ct,2)} lbs'
-                              f'\n\nYou will miss your goal by {abs(round(goalw - ct, 2))} lbs',
-            horizontalalignment='left', verticalalignment='center', transform=ax.transAxes,
-            bbox=dict(facecolor='red', edgecolor='black', pad=10.0, alpha=0.1))
-if m < 0 and m*7 > lpw:
-    ax.text(x=0.02, y=0.3, s=f'Weekly weight loss needed to hit goal:\n{lpw} lbs/week'
-                              f'\n\nYou are currently LOSING weight at a pace of:\n{abs(round(m*7,2))} lbs/week'
-                              f'\n\nWeight at goal date according to current trajectory:\n{round(ct,2)} lbs'
-                              f'\n\nYou will beat your goal by {abs(round(ct - goalw, 2))} lbs',
-            horizontalalignment='left', verticalalignment='center', transform=ax.transAxes,
-            bbox=dict(facecolor='red', edgecolor='black', pad=10.0, alpha=0.1))
-if m < 0 and m*7 == lpw:
-    ax.text(x=0.02, y=0.3, s=f'Weekly weight loss needed to hit goal:\n{lpw} lbs/week'
-                              f'\n\nYou are currently LOSING weight at a pace of:\n{abs(round(m*7,2))} lbs/week'
-                              f'\n\nWeight at goal date according to current trajectory:\n{round(ct,2)} lbs'
-                              f'\n\nYou will nail your goal!',
-            horizontalalignment='left', verticalalignment='center', transform=ax.transAxes,
-            bbox=dict(facecolor='red', edgecolor='black', pad=10.0, alpha=0.1))
-elif m > 0:
-    ax.text(x=0.02, y=0.3, s=f'Weekly weight loss needed to hit goal:\n{lpw} lbs/week'
-                              f'\n\nYou are currently GAINING weight at a pace of:\n{abs(round(m*7, 2))} lbs/week'
-                              f'\n\nWeight at goal date according to current trajectory:\n{round(ct, 2)} lbs'
-                              f'\n\nYou will miss your goal by {abs(round(goalw - ct, 2))} lbs',
-            horizontalalignment='left', verticalalignment='center', transform=ax.transAxes,
-            bbox=dict(facecolor='red', edgecolor='black', pad=10.0, alpha=0.1))
+ax.set_title(f'Weight Loss From {start_date} to {end_date} ({len(df.goal)} days)\n'
+             f'Measured After Urination in the Morning ({today})')
+ax.text(
+    x=0.03, y=0.19,
+    s=f'Total weight loss: {round(startw - min(real_weight[:lw]),1)} lbs lost\n'
+      f'Current Measured Weight: {real_weight[lw-1]} lbs\n'
+      f'Trendline Projected Weight: {projected_weight} lbs\n'
+      f'Projected Goal Date: {goal_date.date()} ({days_left} days until goal)\n'
+      f'Average Daily Total Caloric Burn: {cals_burnt} ± {cals_std}',
+    horizontalalignment='left', verticalalignment='center', transform=ax.transAxes, fontsize=8,
+    bbox=dict(facecolor='red', edgecolor='black', pad=4, alpha=0.1)
+)
 ax.grid(visible=True, which='major', axis='both', c='black', linestyle='--', linewidth=2, alpha=0.1)
 
-# Activity tracking
-steps = [] #### Add daily steps for approximate NEAT
-avg_steps = mean(steps)
-tenk = len([i for i in steps if i > 10000])
-tenkperc = (tenk/len(steps))*100
-step_error = mean([step * 1.15 for step in steps]) - avg_steps #### Assumes 15% error on step count
-
-for step in range(len(dates) - len(steps)):
-    steps.append(np.nan)
-df['steps'] = steps
-df['step_err'] = df['steps'] * 0.15
-
-# Step plot
-ax1 = df.plot.bar(use_index=True, y='steps', color='b', alpha=0.5, yerr='step_err',
-                  error_kw={'ecolor': 'black', 'elinewidth': 0.3, 'capsize': 1},
-                  xlabel='Date', ylabel=r'Daily Steps (± 15%)', legend=True)
-ax1.axhline(y=avg_steps, linewidth=1, color='r', linestyle='--', label='average daily steps')
-ax1.axhline(y=10000, linewidth=1, color='black', linestyle='--', alpha=0.2, label='10000')
-ax1.legend(['Average daily steps', '10000 steps', 'Daily steps'])
-ax1.set_title(f'Daily Steps From {startdt} to {enddt}\nMeasured from Phone between 00:00 to 23:59')
-ax1.text(x=0.777, y=0.72, s=f'Average daily steps:\n'
-                            f'{int(avg_steps)} ± {int(step_error)} steps/day'
-                            f'\n\n{tenk} ({int(tenkperc)}%) days over 10k steps'
-                            f'\n\nBest/Worst day:\n{max(steps)}/{min(steps)} steps',
-         horizontalalignment='left', verticalalignment='center', transform=ax1.transAxes,
-         bbox=dict(facecolor='none', edgecolor='black', pad=10.0, alpha=0.15))
-ax1.set_ylim(0, int(max(steps) * 1.25))
-
-ticklabels = [''] * len(df)
-skip = len(df) // 12
-ticklabels[::skip] = df['day'].iloc[::skip].dt.strftime('%m-%d')
-ax1.xaxis.set_major_formatter(mticker.FixedFormatter(ticklabels))
-fig.autofmt_xdate()
-
-
-# Fixes the tracker
-# https://matplotlib.org/users/recipes.html
-def fmt(x, pos=0, max_i=len(ticklabels) - 1):
-    i = int(x)
-    i = 0 if i < 0 else max_i if i > max_i else i
-    return dates[i]
-
-
-ax1.fmt_xdata = fmt
-
-plt.xticks(rotation=45)
+plt.xticks(rotation=30)
 cursor(hover=True)
+#plt.savefig('tracker.png', dpi=500)
 plt.show()
